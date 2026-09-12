@@ -40,6 +40,7 @@ app.use(
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
+
 // Crucial Portability Rule: Serve uploads statically at /uploads/audio
 const audioUploadsPath = path.join(__dirname, 'uploads', 'audio');
 app.use('/uploads/audio', express.static(audioUploadsPath));
