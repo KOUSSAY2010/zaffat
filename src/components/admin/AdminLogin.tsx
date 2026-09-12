@@ -138,12 +138,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onBackTo
 
         </form>
 
-        {/* Credentials reminder for staging */}
-        <div className="mt-6 pt-4 border-t border-brand-borderSoft text-center">
-          <span className="text-[11px] text-brand-text-light font-mono block" dir="ltr">
-            Staging Default: admin / admin123
-          </span>
-        </div>
 
       </div>
 
