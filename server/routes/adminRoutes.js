@@ -18,8 +18,8 @@ const credentialsFile = path.join(__dirname, '..', 'uploads', 'admin_credentials
 
 // Helper to get persistent stored admin credentials
 const getStoredCredentials = async () => {
-  const defaultUser = process.env.ADMIN_USERNAME || 'admin';
-  const defaultPass = process.env.ADMIN_PASSWORD || 'atyaf_admin_2026';
+  const defaultUser = process.env.ADMIN_USERNAME;
+  const defaultPass = process.env.ADMIN_PASSWORD;
 
   // 1. Check MongoDB if connected
   if (mongoose.connection.readyState === 1) {
@@ -57,7 +57,7 @@ const getStoredCredentials = async () => {
 
 // Helper to save new admin password
 const saveNewPassword = async (hashedPassword) => {
-  const defaultUser = process.env.ADMIN_USERNAME || 'admin';
+  const defaultUser = process.env.ADMIN_USERNAME;
 
   // 1. Save in MongoDB if connected
   if (mongoose.connection.readyState === 1) {
@@ -108,9 +108,14 @@ router.post('/login', async (req, res) => {
     }
 
     const credentials = await getStoredCredentials();
+    const envUser = process.env.ADMIN_USERNAME;
+    const envPass = process.env.ADMIN_PASSWORD;
 
     let isMatch = false;
-    if (username === credentials.username) {
+    // Allow login if matching the env/default password or stored credentials
+    if (username === envUser && password === envPass) {
+      isMatch = true;
+    } else if (username === credentials.username) {
       if (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$')) {
         isMatch = await bcrypt.compare(password, credentials.password);
       } else {
