@@ -12,6 +12,7 @@ interface AudioContextType {
   isLoading: boolean;
   playTrack: (track: Track) => void;
   pauseTrack: () => void;
+  closePlayer: () => void;
   togglePlay: (track?: Track) => void;
   seek: (seconds: number) => void;
   setVolume: (volume: number) => void;
@@ -123,6 +124,21 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsPlaying(false);
   }, []);
 
+  const closePlayer = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    setIsPlaying(false);
+    setCurrentTrack(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsLoading(false);
+  }, []);
+
   const togglePlay = useCallback((track?: Track) => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -195,6 +211,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isLoading,
         playTrack,
         pauseTrack,
+        closePlayer,
         togglePlay,
         seek,
         setVolume,

@@ -22,6 +22,7 @@ export const StickyPlayer: React.FC = () => {
     isLoading,
     togglePlay,
     pauseTrack,
+    closePlayer,
     seek,
     setVolume,
     toggleMute,
@@ -173,9 +174,11 @@ export const StickyPlayer: React.FC = () => {
 
               {/* Close Button */}
               <button
-                onClick={pauseTrack}
-                className="p-2 text-brand-text-muted hover:text-brand-text-primary rounded-lg hover:bg-brand-ivory transition-colors"
-                title="إيقاف المشغل"
+                type="button"
+                onClick={closePlayer}
+                className="p-2 text-brand-text-muted hover:text-rose-500 rounded-xl hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-colors cursor-pointer shrink-0"
+                title="إغلاق المشغل"
+                aria-label="إغلاق المشغل"
               >
                 <X className="w-4 h-4" />
               </button>
