@@ -17,14 +17,15 @@ const router = express.Router();
 const credentialsFile = path.join(__dirname, '..', 'uploads', 'admin_credentials.json');
 
 // Helper to get persistent stored admin credentials
-const getStoredCredentials = async () => {
-  const defaultUser = process.env.ADMIN_USERNAME || 'zaffat_admin';
-  const defaultPass = process.env.ADMIN_PASSWORD || 'Zaffat@2026';
+const getStoredCredentials = async (username) => {
+  const defaultUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
+  const defaultPass = (process.env.ADMIN_PASSWORD || 'Zaffat@2026').trim();
+  const targetUser = (username || defaultUser).trim();
 
   // 1. Check MongoDB if connected
   if (mongoose.connection.readyState === 1) {
-    let admin = await Admin.findOne({ username: defaultUser });
-    if (!admin) {
+    let admin = await Admin.findOne({ username: targetUser });
+    if (!admin && targetUser === defaultUser) {
       // Check if fallback file has a modified password
       let initialPassword = defaultPass;
       if (fs.existsSync(credentialsFile)) {
@@ -38,32 +39,39 @@ const getStoredCredentials = async () => {
         : await bcrypt.hash(initialPassword, 10);
       admin = await Admin.create({ username: defaultUser, password: hashedPassword });
     }
-    return { username: admin.username, password: admin.password, model: admin };
+    if (admin) {
+      return { username: admin.username, password: admin.password, model: admin };
+    }
   }
 
   // 2. Check local fallback credentials file
   if (fs.existsSync(credentialsFile)) {
     try {
       const fileData = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
-      if (fileData.username && fileData.password) {
+      if (fileData.username === targetUser && fileData.password) {
         return { username: fileData.username, password: fileData.password };
       }
     } catch (_) { }
   }
 
-  // 3. Fallback to .env values
-  return { username: defaultUser, password: defaultPass };
+  // 3. Fallback to .env values if user matches default
+  if (targetUser === defaultUser) {
+    return { username: defaultUser, password: defaultPass };
+  }
+
+  return null;
 };
 
 // Helper to save new admin password
-const saveNewPassword = async (hashedPassword) => {
-  const defaultUser = process.env.ADMIN_USERNAME || 'zaffat_admin';
+const saveNewPassword = async (username, hashedPassword) => {
+  const defaultUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
+  const targetUser = (username || defaultUser).trim();
 
   // 1. Save in MongoDB if connected
   if (mongoose.connection.readyState === 1) {
-    let admin = await Admin.findOne({ username: defaultUser });
+    let admin = await Admin.findOne({ username: targetUser });
     if (!admin) {
-      admin = new Admin({ username: defaultUser });
+      admin = new Admin({ username: targetUser });
     }
     admin.password = hashedPassword;
     await admin.save();
@@ -79,7 +87,7 @@ const saveNewPassword = async (hashedPassword) => {
       credentialsFile,
       JSON.stringify(
         {
-          username: defaultUser,
+          username: targetUser,
           password: hashedPassword,
           updatedAt: new Date().toISOString(),
         },
@@ -98,7 +106,7 @@ const saveNewPassword = async (hashedPassword) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
 
     if (!username || !password) {
       return res.status(400).json({
@@ -107,31 +115,25 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const cleanUser = (username || '').trim();
-    const cleanPass = (password || '').trim();
+    const cleanUser = String(username).trim();
+    const cleanPass = String(password).trim();
 
-    const envUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
-    const envPass = (process.env.ADMIN_PASSWORD || 'Zaffat@2026').trim();
+    // Fetch stored admin credentials from database or persistent store
+    const credentials = await getStoredCredentials(cleanUser);
 
+    if (!credentials) {
+      return res.status(401).json({
+        success: false,
+        message: 'بيانات الدخول غير صحيحة، يرجى التحقق من اسم المستخدم وكلمة المرور.',
+      });
+    }
+
+    // Verify password securely using bcrypt or matching hash
     let isMatch = false;
-
-    const validMasterUsers = ['zaffat_admin', 'admin'];
-    const validMasterPasswords = ['Zaffat@2026', 'atyaf_admin_2026', 'admin123', 'admin'];
-
-    // 1. Direct master credentials override
-    if (validMasterUsers.includes(cleanUser) && validMasterPasswords.includes(cleanPass)) {
-      isMatch = true;
-    } else if (cleanUser === envUser && cleanPass === envPass) {
-      isMatch = true;
+    if (credentials.password && (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$'))) {
+      isMatch = await bcrypt.compare(cleanPass, credentials.password);
     } else {
-      const credentials = await getStoredCredentials();
-      if (cleanUser === credentials.username) {
-        if (credentials.password && (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$'))) {
-          isMatch = await bcrypt.compare(cleanPass, credentials.password);
-        } else {
-          isMatch = cleanPass === credentials.password;
-        }
-      }
+      isMatch = cleanPass === credentials.password;
     }
 
     if (!isMatch) {
@@ -144,7 +146,7 @@ router.post('/login', async (req, res) => {
     const secret = process.env.JWT_SECRET || 'atyaf_zaffat_jwt_secret_key_vps_staging_2026_super_secure';
     const token = jwt.sign(
       {
-        username,
+        username: credentials.username,
         role: 'admin',
       },
       secret,
@@ -156,7 +158,7 @@ router.post('/login', async (req, res) => {
       message: 'تم تسجيل الدخول بنجاح.',
       token,
       admin: {
-        username,
+        username: credentials.username,
         role: 'admin',
       },
     });
@@ -165,6 +167,7 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في الخادم أثناء تسجيل الدخول.',
+      error: error.message,
     });
   }
 });
@@ -200,7 +203,15 @@ router.put('/change-password', protectAdmin, async (req, res) => {
       });
     }
 
-    const credentials = await getStoredCredentials();
+    const adminUser = req.admin?.username || 'zaffat_admin';
+    const credentials = await getStoredCredentials(adminUser);
+
+    if (!credentials) {
+      return res.status(404).json({
+        success: false,
+        message: 'تعذر العثور على حساب المشرف.',
+      });
+    }
 
     let isMatch = false;
     if (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$')) {
@@ -218,7 +229,7 @@ router.put('/change-password', protectAdmin, async (req, res) => {
 
     // Hash the new password securely
     const hashedNewPassword = await bcrypt.hash(newPassword.trim(), 10);
-    await saveNewPassword(hashedNewPassword);
+    await saveNewPassword(adminUser, hashedNewPassword);
 
     return res.status(200).json({
       success: true,
