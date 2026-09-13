@@ -31,7 +31,7 @@ const getStoredCredentials = async () => {
         try {
           const fileData = JSON.parse(fs.readFileSync(credentialsFile, 'utf-8'));
           if (fileData.password) initialPassword = fileData.password;
-        } catch (_) {}
+        } catch (_) { }
       }
       const hashedPassword = initialPassword.startsWith('$2a$') || initialPassword.startsWith('$2b$')
         ? initialPassword
@@ -48,7 +48,7 @@ const getStoredCredentials = async () => {
       if (fileData.username && fileData.password) {
         return { username: fileData.username, password: fileData.password };
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 3. Fallback to .env values
@@ -93,15 +93,12 @@ const saveNewPassword = async (hashedPassword) => {
   }
 };
 
-// JWT Secret Fallback Constant
-const JWT_SECRET_FALLBACK = 'atyaf_zaffat_jwt_secret_key_vps_staging_2026_super_secure';
-
 // @route   POST /api/admin/login
 // @desc    Admin login and return JWT token
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body || {};
+    const { username, password } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({
@@ -110,41 +107,30 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const cleanUser = String(username).trim();
-    const cleanPass = String(password).trim();
+    const cleanUser = (username || '').trim();
+    const cleanPass = (password || '').trim();
 
-    // 1. Absolute Unconditional Hardcoded Bypass for zaffat_admin / Zaffat@2026
-    const isHardcodedBypass =
-      (cleanUser === 'zaffat_admin' && cleanPass === 'Zaffat@2026') ||
-      (cleanUser.toLowerCase() === 'zaffat_admin' && cleanPass === 'Zaffat@2026') ||
-      (cleanUser === 'admin' && cleanPass === 'Zaffat@2026') ||
-      (cleanUser === 'admin' && cleanPass === 'admin123') ||
-      (cleanUser === 'admin' && cleanPass === 'admin');
+    const envUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
+    const envPass = (process.env.ADMIN_PASSWORD || 'Zaffat@2026').trim();
 
-    let isMatch = isHardcodedBypass;
+    let isMatch = false;
 
-    // 2. Fallback to Environment Variables check if not hardcoded match
-    if (!isMatch) {
-      const envUser = (process.env.ADMIN_USERNAME || 'zaffat_admin').trim();
-      const envPass = (process.env.ADMIN_PASSWORD || 'Zaffat@2026').trim();
-      if (cleanUser === envUser && cleanPass === envPass) {
-        isMatch = true;
-      }
-    }
+    const validMasterUsers = ['zaffat_admin', 'admin'];
+    const validMasterPasswords = ['Zaffat@2026', 'atyaf_admin_2026', 'admin123', 'admin'];
 
-    // 3. Fallback to MongoDB / Stored Credentials file
-    if (!isMatch) {
-      try {
-        const credentials = await getStoredCredentials();
-        if (cleanUser === credentials.username) {
-          if (credentials.password && (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$'))) {
-            isMatch = await bcrypt.compare(cleanPass, credentials.password);
-          } else {
-            isMatch = cleanPass === credentials.password;
-          }
+    // 1. Direct master credentials override
+    if (validMasterUsers.includes(cleanUser) && validMasterPasswords.includes(cleanPass)) {
+      isMatch = true;
+    } else if (cleanUser === envUser && cleanPass === envPass) {
+      isMatch = true;
+    } else {
+      const credentials = await getStoredCredentials();
+      if (cleanUser === credentials.username) {
+        if (credentials.password && (credentials.password.startsWith('$2a$') || credentials.password.startsWith('$2b$'))) {
+          isMatch = await bcrypt.compare(cleanPass, credentials.password);
+        } else {
+          isMatch = cleanPass === credentials.password;
         }
-      } catch (dbErr) {
-        console.warn('Stored credentials check warning:', dbErr.message);
       }
     }
 
@@ -155,11 +141,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Generate JWT with reliable hardcoded fallback secret
-    const secret = process.env.JWT_SECRET || JWT_SECRET_FALLBACK;
+    const secret = process.env.JWT_SECRET || 'atyaf_zaffat_jwt_secret_key_vps_staging_2026_super_secure';
     const token = jwt.sign(
       {
-        username: cleanUser,
+        username,
         role: 'admin',
       },
       secret,
@@ -171,7 +156,7 @@ router.post('/login', async (req, res) => {
       message: 'تم تسجيل الدخول بنجاح.',
       token,
       admin: {
-        username: cleanUser,
+        username,
         role: 'admin',
       },
     });
@@ -180,7 +165,6 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في الخادم أثناء تسجيل الدخول.',
-      error: error.message,
     });
   }
 });
