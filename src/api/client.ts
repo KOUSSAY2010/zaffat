@@ -92,20 +92,31 @@ export const api = {
   },
 
   // Admin Auth
-  async login(username: string, password: string):Promise<{ success: boolean; token?: string; message?: string }> {
+  async login(username: string, password: string): Promise<{ success: boolean; token?: string; message?: string }> {
     try {
+      const cleanUsername = (username || '').trim();
+      const cleanPassword = (password || '').trim();
+
       const res = await fetch(`${API_BASE_URL}/api/admin/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          username: cleanUsername,
+          password: cleanPassword,
+        }),
       });
+
       const data = await res.json();
       if (data.success && data.token) {
         setAuthToken(data.token);
       }
       return data;
     } catch (err: any) {
-      return { success: false, message: 'تعذر الاتصال بالخادم، يرجى المحاولة لاحقاً.' };
+      console.error('API login error:', err);
+      return { success: false, message: 'تعذر الاتصال بالخادم، يرجى التأكد من تشغيل الخادم والمحاولة لاحقاً.' };
     }
   },
 

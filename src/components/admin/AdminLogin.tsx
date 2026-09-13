@@ -138,6 +138,28 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onBackTo
 
         </form>
 
+        {/* Quick Credentials Info Box */}
+        <div className="mt-6 pt-5 border-t border-brand-borderSoft">
+          <div className="p-3 rounded-xl bg-brand-ivory/80 border border-brand-borderSoft flex flex-col gap-1.5 text-xs text-brand-text-secondary font-cairo">
+            <div className="flex items-center justify-between">
+              <span className="text-brand-text-muted font-normal">بيانات الدخول الافتراضية:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername('zaffat_admin');
+                  setPassword('Zaffat@2026');
+                }}
+                className="text-[11px] font-bold text-brand-gold-dark hover:underline"
+              >
+                تعبئة تلقائية
+              </button>
+            </div>
+            <div className="flex items-center justify-between font-mono text-[11px] text-brand-text-primary">
+              <span>المستخدم: <strong className="text-brand-gold-dark">zaffat_admin</strong></span>
+              <span>كلمة المرور: <strong className="text-brand-gold-dark">Zaffat@2026</strong></span>
+            </div>
+          </div>
+        </div>
 
       </div>
 
